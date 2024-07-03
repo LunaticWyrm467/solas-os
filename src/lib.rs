@@ -29,12 +29,14 @@
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
-pub mod interrupts;
+pub mod instructions;
 pub mod drivers;
 
 use core::{ panic::PanicInfo, any::type_name };
 
 use x86_64::instructions::port::Port;
+
+use instructions::{ interrupts, gdt };
 
 
 /*
@@ -46,6 +48,7 @@ use x86_64::instructions::port::Port;
 /// A global kernel initialization function.
 pub fn init() -> () {
     interrupts::init_idt();
+    gdt::init();
 }
 
 
@@ -103,7 +106,11 @@ pub fn test_panic_handler(info: &PanicInfo) -> ! {
 
 /// Test Runner
 pub fn test_runner(tests: &[&dyn UnitTest]) -> () {
+    if tests.len() == 0 {
+        test_terminate(QemuExitCode::Success);
+    }
     serial_println!("Running {} test{}", tests.len(), if tests.len() != 1 { "s" } else { "" });
+
     for test in tests {
         test.run_as_test();
     }
