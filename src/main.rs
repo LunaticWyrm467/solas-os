@@ -24,7 +24,16 @@
 
 #![no_std]
 #![no_main]
-use core::panic::PanicInfo;
+
+#![feature(custom_test_frameworks)]
+#![test_runner(crate::test_runner)]
+#![reexport_test_harness_main = "test_main"]
+
+pub mod drivers;
+
+use core::{ panic::PanicInfo, any::type_name };
+
+use x86_64::instructions::port::Port;
 
 
 /*
@@ -37,20 +46,14 @@ use core::panic::PanicInfo;
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     
-    // Print out "Hello World!" using the VGA buffer.
-    const HELLO: &[u8] = b"Hello World!";
-    
-    let vga_buffer: *mut u8 = 0xb8000 as *mut u8;
+    // Handle unit tests if we have any.
+    #[cfg(test)]
+    test_main();
 
-    for (i, &byte) in HELLO.iter().enumerate() {
-        unsafe {
-            *vga_buffer.offset(i as isize * 2)     = byte;
-            *vga_buffer.offset(i as isize * 2 + 1) = 0xb;
-        }
-    }
-
+    // Do other stuff...
     loop {}
 }
+
 
 /*
  * Panic
@@ -58,8 +61,70 @@ pub extern "C" fn _start() -> ! {
  */
 
 
-/// Panic Handler
+/// Panic Handler -- On Normal Run
+#[cfg(not(test))]
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
+fn panic(info: &PanicInfo) -> ! {
+    println!("{info}");
     loop {}
+}
+
+/// Panic Handler -- During Unit Test Execution
+#[cfg(test)]
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    serial_println!("[failed]");
+    serial_println!("Error: {}", info);
+    test_terminate(QemuExitCode::Failed);
+    loop {}
+}
+
+
+/*
+ * Test
+ *      Runner
+ */
+
+
+/// The exit code that is written to Qemu's exit port.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum QemuExitCode {
+    Success = 0x10,
+    Failed  = 0x11,
+}
+
+/// Test Runner
+#[cfg(test)]
+pub fn test_runner(tests: &[&dyn UnitTest]) -> () {
+    serial_println!("Running {} test{}", tests.len(), if tests.len() != 1 { "s" } else { "" });
+    for test in tests {
+        test.run_as_test();
+    }
+    test_terminate(QemuExitCode::Success);
+}
+
+/// Runs on test completion or failure. Handles the communication between the OS and Qemu so that
+/// the OS may exit accordingly.
+pub fn test_terminate(exit_code: QemuExitCode) -> () {
+    const IO_BASE_ISA_DEBUG_EXIT: u16 = 0xf4;
+
+    let mut port: Port<u32> = Port::new(IO_BASE_ISA_DEBUG_EXIT);
+    unsafe {
+        port.write(exit_code as u32);
+    }
+}
+
+/// A trait that is implemented for every function (with no args or return type) that allows it to
+/// be used as a unit test.
+pub trait UnitTest {
+    fn run_as_test(&self) -> ();
+}
+
+impl <T: Fn()> UnitTest for T {
+    fn run_as_test(&self) -> () {
+        serial_print!("{}...\t", type_name::<T>());
+        self();
+        serial_println!("[ok]");
+    }
 }
