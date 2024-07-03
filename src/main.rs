@@ -45,6 +45,9 @@ use solas_os::println;
 pub extern "C" fn _start() -> ! {
     println!("Hello World{}", "!");
 
+    // Initialize the kernel.
+    solas_os::init();
+
     // Handle unit tests if we have any.
     #[cfg(test)]
     test_main();

@@ -25,15 +25,28 @@
 #![no_main]
 #![no_std]
 
-#![feature(custom_test_frameworks)]
+#![feature(custom_test_frameworks, abi_x86_interrupt)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
+pub mod interrupts;
 pub mod drivers;
 
 use core::{ panic::PanicInfo, any::type_name };
 
 use x86_64::instructions::port::Port;
+
+
+/*
+ * Initialization
+ *      Routines
+ */
+
+
+/// A global kernel initialization function.
+pub fn init() -> () {
+    interrupts::init_idt();
+}
 
 
 /*
@@ -68,6 +81,7 @@ impl <T: Fn()> UnitTest for T {
 #[cfg(test)]
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
+    init();
     test_main();
     loop {}
 }
